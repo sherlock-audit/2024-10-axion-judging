@@ -3,7 +3,7 @@
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/114 
 
 ## Found by 
-carrotsmuggler
+0x37, carrotsmuggler, pkqs90, s1ce, spark1, vinica\_boy
 ### Summary
 
 The function `_unfarmBuyBurn` in the V3AMO contract is a public function open to everyone and calculates the amount of liquidity to burn from the pool. This function basically burns LP positions to take out liquidity and uses the usd to buy up boost tokens and burns them to raise the price of boost tokens.
@@ -53,8 +53,7 @@ None
 
 Use the `quoteSwap` function to calculate how much needs to be swapped until the target price is hit.
 
-
-# Issue H-2: SolidlyV2AMO is not compatible with Velodrome/Aerodrome. 
+# Issue H-2: V2AMO is not compatible with Velodrome/Aerodrome. 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/239 
 
@@ -189,412 +188,7 @@ N/A
 
 N/A
 
-# Issue M-1: SolidlyV2AMO and SolidlyV3AMO: USDT Approval Logic Causes Reversion 
-
-Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/47 
-
-## Found by 
-0x37, Naresh, RadCet, ZanyBonzy, unnamed, wellbyt3
-### Summary
-
-As the documentation mentions, the contracts are designed to be compatible with any EVM chain and support USDT:
->The smart contracts can potentially be implemented on any full-EVM chain
-
->USD is a generic name for a reference stable coin paired with BOOST in the AMO ( USDC and USDT are the first natural candidates )
-
-However, both the `SolidlyV2AMO` and `SolidlyV3AMO` contracts will not work with USDT, as they will revert during the `_addLiquidity()` and `_unfarmBuyBurn()` functions.
-
-
-### Root Cause
-Both `SolidlyV2AMO` and `SolidlyV3AMO` use OpenZeppelin's IERC20Upgradeable interface, which expects a boolean return value when calling the `approve()` function. However, [USDT's implementation of the approve() function](https://vscode.blockscan.com/ethereum/0xdac17f958d2ee523a2206206994597c13d831ec7) does not return a boolean value, which causes the contract to revert during execution.
-
-```solidity
-    /**
-    * @dev Approve the passed address to spend the specified amount of tokens on behalf of msg.sender.
-    * @param _spender The address which will spend the funds.
-    * @param _value The amount of tokens to be spent.
-    */
-    function approve(address _spender, uint _value) public onlyPayloadSize(2 * 32) {
-```
-
-The functions `_addLiquidity()` and `_unfarmBuyBurn()` in both contracts expect a boolean return value, causing them to revert when interacting with USDT.
-
-example [SolidlyV3AMO::_addLiquidity](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV3AMO.sol#L182-L202) and [SolidlyV3AMO::_unfarmBuyBurn](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV3AMO.sol#L254-L267):
-```solidity
- function _addLiquidity(uint256 usdAmount, uint256 minBoostSpend, uint256 minUsdSpend, uint256 deadline)
-        internal
-        override
-        returns (uint256 boostSpent, uint256 usdSpent, uint256 liquidity)
-    {
-        //....
-
-        // Approve the transfer of BOOST and USD tokens to the pool
-        IERC20Upgradeable(boost).approve(pool, boostAmount);
-        
-@>      IERC20Upgradeable(usd).approve(pool, usdAmount);
-
-        (uint256 amount0Min, uint256 amount1Min) = sortAmounts(minBoostSpend, minUsdSpend);
-
-        uint128 currentLiquidity = ISolidlyV3Pool(pool).liquidity();
-        liquidity = (usdAmount * currentLiquidity) / IERC20Upgradeable(usd).balanceOf(pool);
-
-        // Add liquidity to the BOOST-USD pool within the specified tick range
-        (uint256 amount0, uint256 amount1) = ISolidlyV3Pool(pool).mint(
-            address(this), tickLower, tickUpper, uint128(liquidity), amount0Min, amount1Min, deadline
-        );
-
-        // Revoke approval from the pool
-        IERC20Upgradeable(boost).approve(pool, 0);
-@>      IERC20Upgradeable(usd).approve(pool, 0);
-
-      //....
-    }
-    
-     function _unfarmBuyBurn(
-        uint256 liquidity,
-        uint256 minBoostRemove,
-        uint256 minUsdRemove,
-        uint256 minBoostAmountOut,
-        uint256 deadline
-    )
-        internal
-        override
-        returns (uint256 boostRemoved, uint256 usdRemoved, uint256 usdAmountIn, uint256 boostAmountOut)
-    {
-       //....
-        // Approve the transfer of usd tokens to the pool
-@>      IERC20Upgradeable(usd).approve(pool, usdRemoved);
-
-        // Execute the swap and store the amounts of tokens involved
-        (int256 amount0, int256 amount1) = ISolidlyV3Pool(pool).swap(
-            address(this),
-            boost > usd, // Determines if we are swapping USD for BOOST (true) or BOOST for USD (false)
-            int256(usdRemoved),
-            targetSqrtPriceX96,
-            minBoostAmountOut,
-            deadline
-        );
-
-        // Revoke approval from the pool
-@>      IERC20Upgradeable(usd).approve(pool, 0);
-
-        //...
-    }
-```
-[SolidlyV2AMO::_addLiquidity](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV2AMO.sol#L214-L236) and [SolidlyV2AMO::_unfarmBuyBurn](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV2AMO.sol#L296) faces the same issue
-
-### Internal pre-conditions
-
-_No response_
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-_No response_
-
-### Impact
-
-Adding liquidity and farming will fail due to a revert on USDT approvals
-
-### Mitigation
-
-Use `safeApprove` instead of `approve`
-
-# Issue M-2: Public mintSellFarm can be permanently DOSed due to bad check of V3 pool in _addLiquidity 
-
-Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/64 
-
-## Found by 
-spark1
-### Summary
-
-Public mintSellFarm can be permanently DOSed due to bad check of V3 pool in _addLiquidity. The title is similar to https://github.com/sherlock-audit/2024-10-axion-testing549/issues/8 but this is not a duplicate according to the rules. The code implementation and impact and fix are all different.
-
-> Duplication rules
-> ...
-> The exception to this would be if underlying code implementations OR impact OR the fixes are different, then they may be treated separately.
-
-### Root Cause
-
-https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV3AMO.sol#L186-L187
-
-```solidity
-        uint128 currentLiquidity = ISolidlyV3Pool(pool).liquidity();
-        liquidity = (usdAmount * currentLiquidity) / IERC20Upgradeable(usd).balanceOf(pool);
-```
-
-The amount of liquidity to mint depends on the usd balance of the pool. This is wrong. The problem is similar to https://github.com/sherlock-audit/2024-10-axion-testing549/issues/8. Copied from there:
-
-> Uni/Solidly V3 pools have concentrated liquidity and the balance of the tokens of the pool is not related to the price. When liquidity is added out of range, tokens of only one type can be added to the pool balance without moving the price. See uniswap docs. https://support.uniswap.org/hc/en-us/articles/20902968738317-What-is-single-sided-liquidity
-> 
-> Example: Uni v3 DAI/USDC pool has 36m dai and 37.2m usdc but the price is 1:1. https://app.uniswap.org/explore/pools/ethereum/0x5777d92f208679DB4b9778590Fa3CAB3aC9e2168
-
-Here the problem is not adding single sided liquidity but that the same tokens can be used to add more liquidity units if they are added in a concentrated range than over the whole range.
-
-Uni/Solidly V3 has invariant: adding same amount of tokens (A, B) over same range gives same amount of liquidity (check whitepaper page 2 https://app.uniswap.org/whitepaper-v3.pdf). The tokens of the pool do not matter. This calculation is wrong because that invariant is broken. If concentrated liquidity is added, the `.liquidity()` increases for less usd tokens than it took to add over the full range, which is what is done in the tests and presumably on mainnet. The calculated liquidity to add will be increased more than it should. This can cause permanent DOS because the required usd to obtain that much liquidity can be more than usdAmount. (This calculation will be wrong even if other users add normal liquidity with usd/boost in differing ratios.)
-
-mintSellFarm will be DOSed as it adds liquidity with the full usd balance of the contract. https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/MasterAMO.sol#L213-L214
-```solidity
-            uint256 usdBalance = IERC20Upgradeable(usd).balanceOf(address(this));
-            (boostSpent, usdSpent, liquidity) = _addLiquidity(usdBalance, minBoostSpend, minUsdSpend, deadline);
-```
-
-The admin can call addLiquidity manually and specify a lower usdAmount than what is calculated in mintSellFarm, which is the full balance. That involves difficult math or trial and error.
-
-### Internal pre-conditions
-
-_No response_
-
-### External pre-conditions
-
-Someone adds concentrated liquidity to V3 pool.
-
-### Attack Path
-
-Not an attack, but normal usage.
-
-1. Start with example pool initially at 100 boost and 100 usd of liquidity over the full range owned by the protocol. Protocol receives some liquidity amount. At this point if _addLiquidity is called it will calculate that it needs the received liquidity amount (= total amount) if it wants to add 100 usd of liquidity over the full range.
-2. User adds liquidity to pool over the 0.5-1.5 usd. The liquidity units here are cheaper per token than over the full range.
-3. User buys boost and increases boost price to 1.1 usd.
-4. _addLiquidity will calculate that it needs more liquidity than before if it wants to add 100 usd of liquidity over the full range because of `liquidity = (usdAmount * currentLiquidity) / IERC20Upgradeable(usd).balanceOf(pool);`, and disproportionate increase in currentLiquidity. This is greater than in step 1. The actual usd required to add this liquidity will be > 100. The problem is currentLiquidity has been inflated for cheaper than the protocol added due to concentrated liquidity.
-5. mintSellFarm is now DOSed because it tries to add more usd than it has.
-
-### Impact
-
-Users cannot call mintSellFarm to restore the peg. The admin can call addLiquidity manually and specify a lower usdAmount than what is calculated in mintSellFarm. That involves difficult math or trial and error as well as repeatedly paying unnecessary gas fees. The admin/AMO bot may not know or be unable to do this math and the peg may be lost.
-
-### PoC
-
-Edit the test https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/test/SolidlyV3AMO.test.ts#L522-L553. See section with `// BEGIN ADDED LINES`.
-
-```javascript
-    describe("mintSellFarm", function() {
-      it("Should execute mintSellFarm successfully when price is above 1", async function() {
-        let limitSqrtPriceX96: bigint;
-        const zeroForOne = usd2boost;
-        if (zeroForOne) {
-          limitSqrtPriceX96 = MIN_SQRT_RATIO + BigInt(10);
-        } else {
-          limitSqrtPriceX96 = MAX_SQRT_RATIO - BigInt(10);
-        }
-        const usdToBuy = ethers.parseUnits("1000000", 6);
-        await testUSD.connect(admin).mint(user.address, usdToBuy);
-        await testUSD.connect(user).approve(poolAddress, usdToBuy);
-        await pool.connect(user).swap(
-          user.address,
-          zeroForOne,
-          usdToBuy,
-          limitSqrtPriceX96,
-          1,
-          deadline
-        );
-
-        
-        // BEGIN ADDED LINES
-
-        const boostToAdd = ethers.parseUnits("100000000", 18);
-        await boost.connect(boostMinter).mint(user.address, boostToAdd);
-        await boost.connect(user).approve(poolAddress, boostToAdd);
-        const usdToAdd = ethers.parseUnits("100000000", 6);
-        await testUSD.connect(boostMinter).mint(user.address, usdToAdd);
-        await testUSD.connect(user).approve(poolAddress, usdToAdd);
-
-        console.log(await pool.connect(user).liquidity());
-
-        // add liquidity in the smaller range to increase uint128 currentLiquidity = ISolidlyV3Pool(pool).liquidity();
-        // because .liquidity() only gives liquidity in range
-
-        await pool.connect(user).mint(
-          user.address,
-          tickLower / 2,
-          tickUpper / 2,
-          ethers.parseUnits("10000000", 12),
-          1,
-          1,
-          deadline
-        );
-
-        console.log(await pool.connect(user).liquidity());
-
-        console.log(" user usd " + (await testUSD.connect(user).balanceOf(user)));
-        // END ADDED LINES
-        
-
-        expect(await solidlyV3AMO.boostPrice()).to.be.gt(ethers.parseUnits("1.1", 6));
-        await expect(solidlyV3AMO.connect(amo).mintSellFarm()).to.emit(solidlyV3AMO, "PublicMintSellFarmExecuted");
-        expect(await solidlyV3AMO.boostPrice()).to.be.approximately(ethers.parseUnits(price, 6), 10);
-        expect(await boost.balanceOf(amoAddress)).to.be.equal(0);
-        expect(await testUSD.balanceOf(amoAddress)).to.be.lt(Math.floor(Number(usdToBuy) * errorTolerance));
-      });
-```
-
-Result
-
-```text
-    Public AMO Functions
-      mintSellFarm
-10000000000000000000n
-10000000000000000000n
-20000000000000000000n
- user usd 89002432544798
-        1) Should execute mintSellFarm successfully when price is above 1
-
-  1) SolidlyV3AMO
-       Public AMO Functions
-         mintSellFarm
-           Should execute mintSellFarm successfully when price is above 1:
-     Error: VM Exception while processing transaction: reverted with reason string 'TF'
-    at <UnrecognizedContract>.<unknown> (0xa0152cdfc8a8bcf1291570afec409f3a81c2d734)
-    at SolidlyV3AMO._addLiquidity (contracts/SolidlyV3AMO.sol:190)
-...
-    at async Context.<anonymous> (SolidlyV3AMO.test.ts:585:9)
-```
-
-_addLiquidity failed because of this bug and mintSellFarm is DOSed. Line 585 is `await expect(solidlyV3AMO.connect(amo).mintSellFarm()).to.emit(solidlyV3AMO, "PublicMintSellFarmExecuted");`
-
-The test should pass because adding liquidity does not change the price and so mintSellFarm should still be callable.
-
-### Mitigation
-
-Read the whitepaper and do heavy math. https://app.uniswap.org/whitepaper-v3.pdf
-
-# Issue M-3: Contracts of the codebase will not strictly compliant with the ERC-1504. 
-
-Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/155 
-
-## Found by 
-0xnbvc, Atharv, AuditorPraise, HackTrace, Kirkeelee, dany.armstrong90, isagixyz, pkqs90
-### Summary
-
-Contracts of the codebase isn't strictly compliant with the ERC-1504. This breaks the readme.
-
-### Root Cause
-
-As per readme:
-> Is the codebase expected to comply with any EIPs? Can there be/are there any deviations from the specification?
-> 
-> Strictly compliant: ERC-1504: Upgradable Smart Contract
-
-But the contracts of the codebase uses openzepplin upgradable contracts as base contract which are not compliant with ERC-1504. As per [ERC-1504](https://eips.ethereum.org/EIPS/eip-1504), the upgradable contract should consists of have handler contract, data contract and optionally the upgrader contract.
-But the contracts of the codebase are not compliant with ERC-1504 because they has no data contract and has data inside the handler contract.
-
-
-### Internal pre-conditions
-
-_No response_
-
-### External pre-conditions
-
-_No response_
-
-### Attack Path
-
-_No response_
-
-### Impact
-
-Break the readme.
-
-### PoC
-
-_No response_
-
-### Mitigation
-
-Make the contracts strictly compliant with ERC-1504.
-
-
-# Issue M-4: Precision loss in `boostPrice` in `SolidlyV3AMO` 
-
-Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/191 
-
-## Found by 
-0x37, Bigsam, durov, s1ce, yuza101
-### Summary
-
-There is precision loss in a specific case in `SolidlyV3AMO`, which leads to incorrect value of `boostPrice` being reported. This leads to issues with upstream functions that use it. 
-
-### Root Cause
-
-https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV3AMO.sol#L343
-
-Consider the following code:
-
-```solidity
-function boostPrice() public view override returns (uint256 price) {
-        (uint160 _sqrtPriceX96, , , ) = ISolidlyV3Pool(pool).slot0();
-        uint256 sqrtPriceX96 = uint256(_sqrtPriceX96);
-        if (boost < usd) {
-            price = (10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) * sqrtPriceX96 ** 2) / Q96 ** 2;
-        } else {
-            if (sqrtPriceX96 >= Q96) {
-                // @audit: massive precision loss here
-                price = 10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) / (sqrtPriceX96 ** 2 / Q96 ** 2);
-            } else {
-                price = (10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) * Q96 ** 2) / sqrtPriceX96 ** 2;
-            }
-        }
-    }
-```
-
-Notice that in this specific clause:
-
-```solidity
-if (sqrtPriceX96 >= Q96) {
-                // @audit: massive precision loss here
-                price = 10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) / (sqrtPriceX96 ** 2 / Q96 ** 2);
-            }
-```
-
-We divide `(sqrtPriceX96 ** 2 / Q96 ** 2)`. However, consider a case where the value of the stablecoin is 20% higher than the value of boost; in this case a price of around 0.8 should be reported by the function but because `(sqrtPriceX96 ** 2 / Q96 ** 2)` will round down to 1, the function will end up reporting a price of 1. 
-
-### Internal pre-conditions
-
-_No response_
-
-### External pre-conditions
-
-We need the price of the stablecoin to be at least a bit higher than the price of BOOST for this to be relevant
-
-### Attack Path
-
-Described above; precision loss leads to boostPrice calculation reported by `SolidlyV3AMO` being incorrect. 
-
-### Impact
-
-Impact is that, because the price is reported incorrect, public calls to `unfarmBuyBurn()` will fail because the following check will fail:
-
-`if (newBoostPrice > boostUpperPriceBuy) revert PriceNotInRange(newBoostPrice);`
-
-
-`newBoostPrice` will be reported as `1` even though it should be much lower. 
-
-### PoC
-
-First, set `sqrtPriceX96` to `87150978765690771352898345369` (10% above 2^96)      
-
-```typescript
-pool = await ethers.getContractAt("ISolidlyV3Pool", poolAddress);
-await pool.initialize(sqrtPriceX96);
-```
-
-Then: 
-
-```typescript
-it("Showcases the incorrect price that is returned", async function() {
-        console.log(await solidlyV3AMO.boostPrice()) // 1000000
-})
-```
-
-
-### Mitigation
-
-_No response_
-
-# Issue M-5: SolidlyV3AMO integration with SolidlyV3 does not collect LP fees when burning liquidity. 
+# Issue H-3: V3AMO integration with V3 does not collect LP fees when burning liquidity. 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/242 
 
@@ -758,7 +352,469 @@ N/A
 
 Add a function to call the `RewardsDistributor.sol` for SolidlyV3 to retrieve the LP fees. This can be an independent function, since not all SolidlyV3 forks may support this feature.
 
-# Issue M-6: MasterAMO should not use the `initializer` modifier 
+# Issue H-4: Liquidity is incorrectly calculated during `addLiquidity()` for V3AMO, causing DoS. 
+
+Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/280 
+
+## Found by 
+0x37, pkqs90, s1ce, spark1
+
+### Summary
+
+SolidlyV3 has the same liquidity calculation as UniswapV3. Currently, when adding liquidity, the liquidity calculation is wrong, and may lead to DoS in some cases.
+
+### Root Cause
+
+When calling `addLiquidity`, the amount of liquidity that is suppose to add is calculated by `liquidity = (usdAmount * currentLiquidity) / IERC20Upgradeable(usd).balanceOf(pool);`. This is incorrect in the terms of UniswapV3, because there may be multiple tickLower/tickUpper positions covering the current tick.
+
+Also, since anyone can add a LP position to the pool, so attackers can easily DoS this function.
+
+Consider an attacker adds an unbalanced LP position that deposits a lot of Boost tokens but doesn't deposit USD tokens. This would increase the total liquidity, and inflate the amount of `liquidity` calculated in the above formula, which would lead to an increase of USD tokens required to mint the liquidity.
+
+When the amount of requried USD token is above the approved `usdAmount`, the liquidity minting would fail.
+
+See the following PoC section for a more detailed example.
+
+```solidity
+    function _addLiquidity(
+        uint256 usdAmount,
+        uint256 minBoostSpend,
+        uint256 minUsdSpend,
+        uint256 deadline
+    ) internal override returns (uint256 boostSpent, uint256 usdSpent, uint256 liquidity) {
+        // Calculate the amount of BOOST to mint based on the usdAmount and boostMultiplier
+        uint256 boostAmount = (toBoostAmount(usdAmount) * boostMultiplier) / FACTOR;
+
+        // Mint the specified amount of BOOST tokens to this contract's address
+        IMinter(boostMinter).protocolMint(address(this), boostAmount);
+
+        // Approve the transfer of BOOST and USD tokens to the pool
+        IERC20Upgradeable(boost).approve(pool, boostAmount);
+@>      IERC20Upgradeable(usd).approve(pool, usdAmount);
+
+        (uint256 amount0Min, uint256 amount1Min) = sortAmounts(minBoostSpend, minUsdSpend);
+
+@>      uint128 currentLiquidity = ISolidlyV3Pool(pool).liquidity();
+@>      liquidity = (usdAmount * currentLiquidity) / IERC20Upgradeable(usd).balanceOf(pool);
+
+        // Add liquidity to the BOOST-USD pool within the specified tick range
+        (uint256 amount0, uint256 amount1) = ISolidlyV3Pool(pool).mint(
+            address(this),
+            tickLower,
+            tickUpper,
+            uint128(liquidity),
+            amount0Min,
+            amount1Min,
+            deadline
+        );
+        ...
+    }
+```
+
+- https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV3AMO.sol#L186
+
+### Internal pre-conditions
+
+N/A
+
+### External pre-conditions
+
+N/A
+
+### Attack Path
+
+Attackers can brick addLiquidity function by depositing LP.
+
+### Impact
+
+Attackers can deposit LP to make add liquidity fail, which also makes `mintSellFarm()` fail. This is an important feature to keep Boost/USD pegged, thus a high severity issue.
+
+This is basically no cost for attackers since the Boost/USD will always go back to 1:1 so no impermanent loss is incurred.
+
+### PoC
+
+Add the following code in SolidlyV3AMO.test.ts. It does the following:
+
+1. Add unbalanced liquidity so that total liquidity increases, but USD.balanceOf(pool) does not increase.
+2. Mint some USD to SolidlyV3AMO for adding liquidity.
+3. Try to add liquidity, but it fails due to incorrect liquidity calculation (tries to add too much liquidity for not enough USD tokens).
+
+```solidity
+      it("Should execute addLiquidity successfully", async function() {
+        // Step 1: Add unbalanced liquidity so that total liquidity increases, but USD.balanceOf(pool) does not increase.
+        {
+          // -276325 is the current slot0 tick.
+          console.log(await pool.slot0());
+          await boost.connect(boostMinter).mint(admin.address, boostDesired * 100n);
+          await testUSD.connect(boostMinter).mint(admin.address, usdDesired * 100n);
+          await boost.approve(poolAddress, boostDesired * 100n);
+          await testUSD.approve(poolAddress, usdDesired * 100n);
+          console.log(await boost.balanceOf(admin.address));
+          console.log(await testUSD.balanceOf(admin.address));
+          await pool.mint(
+            amoAddress,
+            -276325 - 10,
+            tickUpper,
+            liquidity * 3n,
+            0,
+            0,
+            deadline
+          );
+          console.log(await boost.balanceOf(admin.address));
+          console.log(await testUSD.balanceOf(admin.address));
+        }
+
+        // Step 2: Mint some USD to SolidlyV3AMO for adding liquidity.
+        await testUSD.connect(admin).mint(amoAddress, ethers.parseUnits("1000", 6));
+        const usdBalance = await testUSD.balanceOf(amoAddress);
+
+        // Step 3: Add liquidity fails due to incorrect liquidity calculation.
+        await expect(solidlyV3AMO.connect(amo).addLiquidity(
+          usdBalance,
+          1,
+          1,
+          deadline
+        )).to.emit(solidlyV3AMO, "AddLiquidity");
+      });
+```
+
+### Mitigation
+
+Use the UniswapV3 library for calculating liquidity: https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/LiquidityAmounts.sol#L56
+
+```solidity
+    function getLiquidityForAmounts(
+        uint160 sqrtRatioX96,
+        uint160 sqrtRatioAX96,
+        uint160 sqrtRatioBX96,
+        uint256 amount0,
+        uint256 amount1
+    ) internal pure returns (uint128 liquidity) {
+        if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
+
+        if (sqrtRatioX96 <= sqrtRatioAX96) {
+            liquidity = getLiquidityForAmount0(sqrtRatioAX96, sqrtRatioBX96, amount0);
+        } else if (sqrtRatioX96 < sqrtRatioBX96) {
+            uint128 liquidity0 = getLiquidityForAmount0(sqrtRatioX96, sqrtRatioBX96, amount0);
+            uint128 liquidity1 = getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioX96, amount1);
+
+            liquidity = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
+        } else {
+            liquidity = getLiquidityForAmount1(sqrtRatioAX96, sqrtRatioBX96, amount1);
+        }
+    }
+
+```
+
+# Issue M-1: Boost can be sold under peg despite comments and code attempting to prevent it 
+
+Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/36 
+
+## Found by 
+spark1, vinica\_boy
+### Summary
+
+Boost can be sold under peg despite comments and code attempting to prevent it. This is defined in the comments https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/MasterAMO.sol#L148-L150 and readme " There are, however, some hard-coded limitations —— mainly to ensure that **even admins can only** buyback BOOST below peg and **sell it above peg**. These are doctsringed."
+
+### Root Cause
+
+The only apparent check to prevent boost from being sold below peg is a simple if statement:
+
+https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV2AMO.sol#L171
+
+```solidity
+        if (minUsdAmountOut < toUsdAmount(boostAmount)) minUsdAmountOut = toUsdAmount(boostAmount);
+```
+
+However this does not prevent boost from being sold below peg. Consider pool with 90 boost and 110 usdc (ignore fees for now). 1 boost > 1 usdc. If _mintAndSellBoost is called with 20 boost, we will get end result 110 boost and 90 usdc. 20 boost were sold for 20 usdc. However, some of the boost were sold below the peg. Consider the first boost we sold. It was above the peg. At about 99.498 boost and 99.498 usdc the pool will be balanced. However, once we continue selling boost we will be selling below the peg.
+
+The admin can call mintAndSellBoost directly. https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/MasterAMO.sol#L155-L168
+
+The following affiliated check does nothing as without fee on transfer it will always pass. https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV2AMO.sol#L186-L188
+
+```solidity
+        // we check that selling BOOST yields proportionally more USD
+        if (usdAmountOut != usdBalanceAfter - usdBalanceBefore)
+            revert UsdAmountOutMismatch(usdAmountOut, usdBalanceAfter - usdBalanceBefore);
+```
+
+This also applies to mintSellFarm as it does the same call with toUsdAmount(boostAmount) https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV2AMO.sol#L349.
+
+This may not apply to V3 AMO depending on if targetSqrtPriceX96 is set correctly: https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV3AMO.sol#L141-L160
+
+This contradicts the comments and readme stating that boost cannot be sold below peg by the AMO. 
+
+### Internal pre-conditions
+
+no preconditions
+
+### External pre-conditions
+
+no preconditions
+
+### Attack Path
+
+Not an attack
+
+### Impact
+
+The protocol loses funds equivalent to the area under the curve of boost sold below peg. In large depeg this could be a huge amount of money. In the 90 - 110 example the total loss is 10.502 - 9.498 = 1.004. The protocol has lost 5% of the funds used in _mintAndSellBoost. High severity as it has large loss and violates important invariant specified explicitly in readme.
+
+### PoC
+
+Not required according to the terms
+
+### Mitigation
+
+Check that you can only sell to the sqrt K 1:1 balanced price. 
+
+# Issue M-2: V2AMO and V3AMO: USDT Approval Logic Causes Reversion 
+
+Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/47 
+
+## Found by 
+0x37, Naresh, RadCet, ZanyBonzy, unnamed, wellbyt3
+### Summary
+
+As the documentation mentions, the contracts are designed to be compatible with any EVM chain and support USDT:
+>The smart contracts can potentially be implemented on any full-EVM chain
+
+>USD is a generic name for a reference stable coin paired with BOOST in the AMO ( USDC and USDT are the first natural candidates )
+
+However, both the `SolidlyV2AMO` and `SolidlyV3AMO` contracts will not work with USDT, as they will revert during the `_addLiquidity()` and `_unfarmBuyBurn()` functions.
+
+
+### Root Cause
+Both `SolidlyV2AMO` and `SolidlyV3AMO` use OpenZeppelin's IERC20Upgradeable interface, which expects a boolean return value when calling the `approve()` function. However, [USDT's implementation of the approve() function](https://vscode.blockscan.com/ethereum/0xdac17f958d2ee523a2206206994597c13d831ec7) does not return a boolean value, which causes the contract to revert during execution.
+
+```solidity
+    /**
+    * @dev Approve the passed address to spend the specified amount of tokens on behalf of msg.sender.
+    * @param _spender The address which will spend the funds.
+    * @param _value The amount of tokens to be spent.
+    */
+    function approve(address _spender, uint _value) public onlyPayloadSize(2 * 32) {
+```
+
+The functions `_addLiquidity()` and `_unfarmBuyBurn()` in both contracts expect a boolean return value, causing them to revert when interacting with USDT.
+
+example [SolidlyV3AMO::_addLiquidity](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV3AMO.sol#L182-L202) and [SolidlyV3AMO::_unfarmBuyBurn](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV3AMO.sol#L254-L267):
+```solidity
+ function _addLiquidity(uint256 usdAmount, uint256 minBoostSpend, uint256 minUsdSpend, uint256 deadline)
+        internal
+        override
+        returns (uint256 boostSpent, uint256 usdSpent, uint256 liquidity)
+    {
+        //....
+
+        // Approve the transfer of BOOST and USD tokens to the pool
+        IERC20Upgradeable(boost).approve(pool, boostAmount);
+        
+@>      IERC20Upgradeable(usd).approve(pool, usdAmount);
+
+        (uint256 amount0Min, uint256 amount1Min) = sortAmounts(minBoostSpend, minUsdSpend);
+
+        uint128 currentLiquidity = ISolidlyV3Pool(pool).liquidity();
+        liquidity = (usdAmount * currentLiquidity) / IERC20Upgradeable(usd).balanceOf(pool);
+
+        // Add liquidity to the BOOST-USD pool within the specified tick range
+        (uint256 amount0, uint256 amount1) = ISolidlyV3Pool(pool).mint(
+            address(this), tickLower, tickUpper, uint128(liquidity), amount0Min, amount1Min, deadline
+        );
+
+        // Revoke approval from the pool
+        IERC20Upgradeable(boost).approve(pool, 0);
+@>      IERC20Upgradeable(usd).approve(pool, 0);
+
+      //....
+    }
+    
+     function _unfarmBuyBurn(
+        uint256 liquidity,
+        uint256 minBoostRemove,
+        uint256 minUsdRemove,
+        uint256 minBoostAmountOut,
+        uint256 deadline
+    )
+        internal
+        override
+        returns (uint256 boostRemoved, uint256 usdRemoved, uint256 usdAmountIn, uint256 boostAmountOut)
+    {
+       //....
+        // Approve the transfer of usd tokens to the pool
+@>      IERC20Upgradeable(usd).approve(pool, usdRemoved);
+
+        // Execute the swap and store the amounts of tokens involved
+        (int256 amount0, int256 amount1) = ISolidlyV3Pool(pool).swap(
+            address(this),
+            boost > usd, // Determines if we are swapping USD for BOOST (true) or BOOST for USD (false)
+            int256(usdRemoved),
+            targetSqrtPriceX96,
+            minBoostAmountOut,
+            deadline
+        );
+
+        // Revoke approval from the pool
+@>      IERC20Upgradeable(usd).approve(pool, 0);
+
+        //...
+    }
+```
+[SolidlyV2AMO::_addLiquidity](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV2AMO.sol#L214-L236) and [SolidlyV2AMO::_unfarmBuyBurn](https://github.com/sherlock-audit/2024-10-axion/blob/d75df3636ea28dd627d548d5d473c5d5477b0dc6/liquidity-amo/contracts/SolidlyV2AMO.sol#L296) faces the same issue
+
+### Internal pre-conditions
+
+_No response_
+
+### External pre-conditions
+
+_No response_
+
+### Attack Path
+
+_No response_
+
+### Impact
+
+Adding liquidity and farming will fail due to a revert on USDT approvals
+
+### Mitigation
+
+Use `safeApprove` instead of `approve`
+
+# Issue M-3: Contracts of the codebase will not strictly compliant with the ERC-1504. 
+
+Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/155 
+
+## Found by 
+0xnbvc, Atharv, AuditorPraise, HackTrace, Kirkeelee, dany.armstrong90, isagixyz, pkqs90
+### Summary
+
+Contracts of the codebase isn't strictly compliant with the ERC-1504. This breaks the readme.
+
+### Root Cause
+
+As per readme:
+> Is the codebase expected to comply with any EIPs? Can there be/are there any deviations from the specification?
+> 
+> Strictly compliant: ERC-1504: Upgradable Smart Contract
+
+But the contracts of the codebase uses openzepplin upgradable contracts as base contract which are not compliant with ERC-1504. As per [ERC-1504](https://eips.ethereum.org/EIPS/eip-1504), the upgradable contract should consists of have handler contract, data contract and optionally the upgrader contract.
+But the contracts of the codebase are not compliant with ERC-1504 because they has no data contract and has data inside the handler contract.
+
+
+### Internal pre-conditions
+
+_No response_
+
+### External pre-conditions
+
+_No response_
+
+### Attack Path
+
+_No response_
+
+### Impact
+
+Break the readme.
+
+### PoC
+
+_No response_
+
+### Mitigation
+
+Make the contracts strictly compliant with ERC-1504.
+
+# Issue M-4: Precision loss in `boostPrice` in `V3AMO` 
+
+Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/191 
+
+## Found by 
+0x37, Bigsam, durov, s1ce, yuza101
+### Summary
+
+There is precision loss in a specific case in `SolidlyV3AMO`, which leads to incorrect value of `boostPrice` being reported. This leads to issues with upstream functions that use it. 
+
+### Root Cause
+
+https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV3AMO.sol#L343
+
+Consider the following code:
+
+```solidity
+function boostPrice() public view override returns (uint256 price) {
+        (uint160 _sqrtPriceX96, , , ) = ISolidlyV3Pool(pool).slot0();
+        uint256 sqrtPriceX96 = uint256(_sqrtPriceX96);
+        if (boost < usd) {
+            price = (10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) * sqrtPriceX96 ** 2) / Q96 ** 2;
+        } else {
+            if (sqrtPriceX96 >= Q96) {
+                // @audit: massive precision loss here
+                price = 10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) / (sqrtPriceX96 ** 2 / Q96 ** 2);
+            } else {
+                price = (10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) * Q96 ** 2) / sqrtPriceX96 ** 2;
+            }
+        }
+    }
+```
+
+Notice that in this specific clause:
+
+```solidity
+if (sqrtPriceX96 >= Q96) {
+                // @audit: massive precision loss here
+                price = 10 ** (boostDecimals - usdDecimals + PRICE_DECIMALS) / (sqrtPriceX96 ** 2 / Q96 ** 2);
+            }
+```
+
+We divide `(sqrtPriceX96 ** 2 / Q96 ** 2)`. However, consider a case where the value of the stablecoin is 20% higher than the value of boost; in this case a price of around 0.8 should be reported by the function but because `(sqrtPriceX96 ** 2 / Q96 ** 2)` will round down to 1, the function will end up reporting a price of 1. 
+
+### Internal pre-conditions
+
+_No response_
+
+### External pre-conditions
+
+We need the price of the stablecoin to be at least a bit higher than the price of BOOST for this to be relevant
+
+### Attack Path
+
+Described above; precision loss leads to boostPrice calculation reported by `SolidlyV3AMO` being incorrect. 
+
+### Impact
+
+Impact is that, because the price is reported incorrect, public calls to `unfarmBuyBurn()` will fail because the following check will fail:
+
+`if (newBoostPrice > boostUpperPriceBuy) revert PriceNotInRange(newBoostPrice);`
+
+
+`newBoostPrice` will be reported as `1` even though it should be much lower. 
+
+### PoC
+
+First, set `sqrtPriceX96` to `87150978765690771352898345369` (10% above 2^96)      
+
+```typescript
+pool = await ethers.getContractAt("ISolidlyV3Pool", poolAddress);
+await pool.initialize(sqrtPriceX96);
+```
+
+Then: 
+
+```typescript
+it("Showcases the incorrect price that is returned", async function() {
+        console.log(await solidlyV3AMO.boostPrice()) // 1000000
+})
+```
+
+
+### Mitigation
+
+_No response_
+
+# Issue M-5: MasterAMO should not use the `initializer` modifier 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/244 
 
@@ -826,7 +882,7 @@ Replace the initializer modifier in the [MasterAMO](https://github.com/sherlock-
 +   ) public onlyInitializing {
 ```
 
-# Issue M-7: The `SolidlyV3AMO._mintAndSellBoost()` function does not work with Velodrome, Aerodrome, Fenix, Thena and Ramses 
+# Issue M-6: The `V3AMO._mintAndSellBoost()` function does not work with Velodrome, Aerodrome, Fenix, Thena and Ramses 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/268 
 
@@ -901,175 +957,4 @@ Protocol team can't mint additional `BOOST` and sell them for `USDC` to bring th
 ### Mitigation
 
 Use the correct function parameters for Velodrome, Aerodrome, Fenix, Thena and Ramses.
-
-# Issue M-8: Public unfarmBuyBurn may not rebalance the pool correctly 
-
-Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/283 
-
-## Found by 
-vinica\_boy
-### Summary
-
-Public function `unfarmBuyBurn()` is expected to bring back the BOOST price close to $1 in case it is lower than $1. In AMO V3 it is done by removing liquidity and swapping the removed USD for BOOST. Current implementation wont work if the price is in a range with low liquidity.
-
-### Root Cause
-
-Wrong implementation in calculation of the to be removed liquidity when rebalancing a pool which BOOST price is < $1.
-https://github.com/sherlock-audit/2024-10-axion/blob/c65e662999d0c79439703fc6713814b4ad023e01/liquidity-amo/contracts/SolidlyV3AMO.sol#L319
-
-totalLiquidity is the amount of "in range" liquidity and it can be much smaller than the whole liquidity spread in the pool.
-The whole liquidity is `boostBalance + usdBalance` in case there are not donated amounts of the both tokens. In case there are user donations to the pool, they can additionally prevent the correct pool rebalance, but as this is not profitable and also expensive for an attacker when there is enough liquidity in pool.
-
-Calculated `liquidity` to be removed will be much smaller than the needed in order to move the BOOST price to $1 if the current in range liquidity is not high enough.
-```solidity
-function _unfarmBuyBurn() internal override returns (uint256 liquidity, uint256 newBoostPrice) {
-        uint256 totalLiquidity = ISolidlyV3Pool(pool).liquidity();
-        uint256 boostBalance = IERC20Upgradeable(boost).balanceOf(pool);
-        uint256 usdBalance = toBoostAmount(IERC20Upgradeable(usd).balanceOf(pool)); // scaled
-        if (boostBalance <= usdBalance) revert PriceNotInRange(boostPrice());
-
-        liquidity = (totalLiquidity * (boostBalance - usdBalance)) / (boostBalance + usdBalance);
-        liquidity = (liquidity * LIQUIDITY_COEFF) / FACTOR;
-
-        _unfarmBuyBurn(
-            liquidity,
-            1, // minBoostRemove
-            1, // minUsdRemove
-            1, // minBoostAmountOut
-            block.timestamp + 1 // deadline
-        );
-```
-
-### Internal pre-conditions
-
-In range liquidity for the current price is low.
-### External pre-conditions
-
-N/A
-### Attack Path
-
-N/A
-### Impact
-
-`unfarmBuyBurn()` wont make the price of BOOST close to 1$.
-
-### PoC
-
-```solidity
-it.only("Should execute unfarmBuyBurn successfully when price is above 1", async function() {
-        let limitSqrtPriceX96: bigint;
-        const zeroForOne = boost2usd;
-        if (zeroForOne) {
-          limitSqrtPriceX96 = MIN_SQRT_RATIO + BigInt(10);
-        } else {
-          limitSqrtPriceX96 = MAX_SQRT_RATIO - BigInt(10);
-        }
-        const boostToBuy = ethers.parseUnits("1200000", 18); //1000000
-        await boost.connect(boostMinter).mint(user.address, boostToBuy);
-        await boost.connect(user).approve(poolAddress, boostToBuy);
-        await pool.connect(user).swap(
-          user.address,
-          zeroForOne,
-          boostToBuy,
-          limitSqrtPriceX96,
-          1,
-          deadline
-        );
-        
-		// Simulate bigger liquidity spread in the pool
-        await boost.connect(boostMinter).mint(poolAddress, ethers.parseUnits("10000000", 18));
-        await testUSD.mint(poolAddress, ethers.parseUnits("10000000", 6))
-        
-        // Boost price is lower than 0.9
-        expect(await solidlyV3AMO.boostPrice()).to.be.lt(ethers.parseUnits("0.9", 6));
-        
-        await expect(solidlyV3AMO.connect(amo).unfarmBuyBurn()).to.emit(solidlyV3AMO, "PublicUnfarmBuyBurnExecuted");
-        expect(await solidlyV3AMO.boostPrice()).to.be.approximately(ethers.parseUnits(price, 6), 10);
-        expect(await boost.balanceOf(amoAddress)).to.be.equal(0);
-        expect(await testUSD.balanceOf(amoAddress)).to.be.lt(
-          Math.floor(Number(boostToBuy) * (10 ** 6 - Number(usdUsageRatio)) / 10 ** 18));
-      });
-```
-
-```text
-output:
-AssertionError: expected 895194 to be close to 1000000 +/- 10
-```
-### Mitigation
-
-Calculate the needed to be removed liquidity not based current in range liquidity.
-
-# Issue M-9: Liquidity is incorrectly calculated during `unfarmBuyBurn()` for SolidlyV2AMO, causing DoS. 
-
-Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/286 
-
-## Found by 
-pkqs90
-
-### Summary
-
-In SolidlyV2AMO, when performing `unfarmBuyBurn()` and calculating the amount of liquidity to remove, it assumes all the LP tokens are supplied by SolidlyV2AMO. This would result in a overestimated number of liquidity to burn, and may cause DoS or cause the protocol to burn most of it's LP.
-
-### Root Cause
-
-Users can call the public `unfarmBuyBurn()` function to burn liquidity, currently the amount of liquidity to burn is calculated by the following formula: `liquidity = (usdNeeded * totalLp) / usdReserve;`.
-
-However, the main issue here is the `totalLp` means the amount of ALL LP tokens, and not the amount of LP tokens that SolidlyV2AMO owns. It could easily happen that other users are also providing LP for the pool, and the calculated `liquidity` to burn would be too large.
-
-In this case, if the `liquidity` is too large, it would cause an DoS. Or even worse, an attacker can deposit LP, and trick the SolidlyV2AMO to burn nearly all of it's LP tokens, which would be very undesirable.
-
-```solidity
-    function _unfarmBuyBurn() internal override returns (uint256 liquidity, uint256 newBoostPrice) {
-        (uint256 boostReserve, uint256 usdReserve) = getReserves();
-
-        uint256 usdNeeded = (((boostReserve - usdReserve) / 2) * usdBuyRatio) / FACTOR;
-
-        // @audit-bug: There may be other LP suppliers. Should use the LP tokens that AMO contract owns.
-
-@>      uint256 totalLp = IERC20Upgradeable(pool).totalSupply();
-        liquidity = (usdNeeded * totalLp) / usdReserve;
-
-        // Readjust the LP amount and USD needed to balance price before removing LP
-        // ( rationale: we first compute the amount of USD needed to rebalance the price in the pool; then first-order adjust for the fact that removing liquidity/totalLP fraction of the pool increases price impact —— less liquidity needs to be removed )
-        // liquidity -= liquidity ** 2 / totalLp;
-
-        _unfarmBuyBurn(
-            liquidity,
-            (liquidity * boostReserve) / totalLp, // the minBoostRemove argument
-            toUsdAmount(usdNeeded), // the minUsdRemove argument
-            usdNeeded, // the minBoostAmountOut argument
-            block.timestamp + 1 // deadline is next block as the computation is valid instantly
-        );
-
-        newBoostPrice = boostPrice();
-    }
-```
-
-- https://github.com/sherlock-audit/2024-10-axion/blob/main/liquidity-amo/contracts/SolidlyV2AMO.sol#L362
-
-### Internal pre-conditions
-
-N/A
-
-### External pre-conditions
-
-N/A
-
-### Attack Path
-
-Attackers can brick the public `unfarmBuyBurn()` function by depositing LP, or even force the SolidlyV2AMO to burn most of it's liquidity.
-
-### Impact
-
-Attackers can deposit LP to make `unfarmBuyBurn()`. This is an important feature to keep Boost/USD pegged, thus a high severity issue.
-
-This is basically no cost for attackers since the Boost/USD will always go back to 1:1 so no impermanent loss is incurred.
-
-### PoC
-
-N/A
-
-### Mitigation
-
-Use the amount of LP tokens that the AMO contract owns instead of totalSupply of LP tokens.
 
