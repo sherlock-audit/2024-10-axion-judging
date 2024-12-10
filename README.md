@@ -53,6 +53,16 @@ None
 
 Use the `quoteSwap` function to calculate how much needs to be swapped until the target price is hit.
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/7
+
+
 # Issue H-2: V2AMO is not compatible with Velodrome/Aerodrome. 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/239 
@@ -187,6 +197,16 @@ N/A
 ### Mitigation
 
 N/A
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/9
+
 
 # Issue H-3: V3AMO integration with V3 does not collect LP fees when burning liquidity. 
 
@@ -352,6 +372,16 @@ N/A
 
 Add a function to call the `RewardsDistributor.sol` for SolidlyV3 to retrieve the LP fees. This can be an independent function, since not all SolidlyV3 forks may support this feature.
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/10
+
+
 # Issue H-4: Liquidity is incorrectly calculated during `addLiquidity()` for V3AMO, causing DoS. 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/280 
@@ -506,6 +536,16 @@ Use the UniswapV3 library for calculating liquidity: https://github.com/Uniswap/
 
 ```
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/12
+
+
 # Issue M-1: Boost can be sold under peg despite comments and code attempting to prevent it 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/36 
@@ -567,6 +607,16 @@ Not required according to the terms
 ### Mitigation
 
 Check that you can only sell to the sqrt K 1:1 balanced price. 
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/4
+
 
 # Issue M-2: V2AMO and V3AMO: USDT Approval Logic Causes Reversion 
 
@@ -682,9 +732,21 @@ Adding liquidity and farming will fail due to a revert on USDT approvals
 
 Use `safeApprove` instead of `approve`
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/5
+
+
 # Issue M-3: Contracts of the codebase will not strictly compliant with the ERC-1504. 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/155 
+
+The protocol has acknowledged this issue.
 
 ## Found by 
 0xnbvc, Atharv, AuditorPraise, HackTrace, Kirkeelee, dany.armstrong90, isagixyz, pkqs90
@@ -814,6 +876,16 @@ it("Showcases the incorrect price that is returned", async function() {
 
 _No response_
 
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/8
+
+
 # Issue M-5: MasterAMO should not use the `initializer` modifier 
 
 Source: https://github.com/sherlock-audit/2024-10-axion-judging/issues/244 
@@ -881,6 +953,16 @@ Replace the initializer modifier in the [MasterAMO](https://github.com/sherlock-
 -   ) public initializer {
 +   ) public onlyInitializing {
 ```
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/11
+
 
 # Issue M-6: The `V3AMO._mintAndSellBoost()` function does not work with Velodrome, Aerodrome, Fenix, Thena and Ramses 
 
@@ -957,4 +1039,14 @@ Protocol team can't mint additional `BOOST` and sell them for `USDC` to bring th
 ### Mitigation
 
 Use the correct function parameters for Velodrome, Aerodrome, Fenix, Thena and Ramses.
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+The protocol team fixed this issue in the following PRs/commits:
+https://github.com/AXION-MONEY/liquidity-amo/pull/13
+
 
